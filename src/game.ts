@@ -24,11 +24,24 @@ export interface Mods {
 
 export const CRED_BASE = 25_000; // run earnings needed for the first cred
 export const EVENT_TIMEOUT_MS = 12_000;
-const EVENT_MIN_GAP_SEC = 50;
-const EVENT_MAX_GAP_SEC = 100;
+const EVENT_MIN_GAP_SEC = 35;
+const EVENT_MAX_GAP_SEC = 75;
 const EVENT_EARNINGS_FLOOR = 50; // no chaos until the run is underway
 const OFFLINE_RATE = 0.4;
 const OFFLINE_CAP_SEC = 8 * 3600;
+
+// Active play: tap combos, frenzy meter, golden bag.
+export const COMBO_WINDOW_MS = 2_000; // taps within this window chain
+const COMBO_STEP = 0.05; // each combo tap adds +5% to tap earnings
+const COMBO_MAX_MULT = 3;
+const FRENZY_PER_TAP = 0.04; // 25 taps fill the meter
+export const FRENZY_DURATION_MS = 10_000;
+const FRENZY_SPEED = 3;
+const BAG_FLIGHT_MS = 6_000;
+const BAG_MIN_GAP_SEC = 25;
+const BAG_MAX_GAP_SEC = 55;
+const BAG_JACKPOT_CHANCE = 0.2;
+const BAG_REWARD_SECONDS = 40;
 
 function pickWeighted(items: WeightedOutcome[]): WeightedOutcome {
   const total = items.reduce((sum, it) => sum + it.weight, 0);
@@ -54,6 +67,14 @@ export class Game {
   readonly offlineGain: number;
   onChaos: ((ev: ChaosEvent, deadline: number) => void) | null = null;
   fxQueue: Fx[] = [];
+  // Transient active-play state (intentionally not saved).
+  combo = 0;
+  comboExpiresAt = 0;
+  frenzyMeter = 0; // 0..1
+  frenzyUntil = 0;
+  bag: { spawnedAt: number; duration: number } | null = null;
+  lastTapAt = Date.now();
+  private nextBagAt = Date.now() + 20_000;
   private lastEventId = '';
 
   constructor() {
@@ -105,7 +126,17 @@ export class Game {
         m.speed *= b.speedMult;
       }
     }
+    if (now < this.frenzyUntil) m.speed *= FRENZY_SPEED;
     return m;
+  }
+
+  frenzyActive(): boolean {
+    return Date.now() < this.frenzyUntil;
+  }
+
+  comboMult(): number {
+    if (Date.now() > this.comboExpiresAt) return 1;
+    return Math.min(1 + this.combo * COMBO_STEP, COMBO_MAX_MULT);
   }
 
   // Milestones: revenue doubles at level 25, 50, and every 100 levels.
@@ -170,18 +201,46 @@ export class Game {
     this.s.stations[id].level += count;
   }
 
-  // Tap-rush: instantly complete the current cycle (plus any mutation tap bonus).
+  // Tap-rush: instantly complete the current cycle (plus any mutation tap
+  // bonus), chain the combo, and charge the frenzy meter.
   rush(id: string): number {
     const def = STATIONS.find((d) => d.id === id);
     if (!def) return 0;
     const st = this.s.stations[id];
     if (st.level <= 0) return 0;
+    const now = Date.now();
+    this.lastTapAt = now;
+    if (now > this.comboExpiresAt) this.combo = 0;
+    this.combo++;
+    this.comboExpiresAt = now + COMBO_WINDOW_MS;
+    if (now >= this.frenzyUntil) {
+      this.frenzyMeter = Math.min(this.frenzyMeter + FRENZY_PER_TAP, 1);
+      if (this.frenzyMeter >= 1) {
+        this.frenzyMeter = 0;
+        this.frenzyUntil = now + FRENZY_DURATION_MS;
+      }
+    }
     const mods = this.mods();
-    const earned = this.revenuePerCycle(def, mods) * (1 + mods.tap);
+    const earned = this.revenuePerCycle(def, mods) * (1 + mods.tap) * this.comboMult();
     st.progress = 0;
     this.earn(earned);
     this.pushFx(id, earned, 'rush');
     return earned;
+  }
+
+  // Grab the flying golden bag: big payout, or a jackpot that triggers frenzy.
+  collectBag(): { amount: number; jackpot: boolean } | null {
+    if (!this.bag) return null;
+    this.bag = null;
+    this.nextBagAt = Date.now() + (BAG_MIN_GAP_SEC + Math.random() * (BAG_MAX_GAP_SEC - BAG_MIN_GAP_SEC)) * 1000;
+    if (Math.random() < BAG_JACKPOT_CHANCE) {
+      this.frenzyMeter = 0;
+      this.frenzyUntil = Date.now() + FRENZY_DURATION_MS;
+      return { amount: 0, jackpot: true };
+    }
+    const amount = Math.max(this.rps() * BAG_REWARD_SECONDS, 25);
+    this.earn(amount);
+    return { amount, jackpot: false };
   }
 
   cycleBuyAmount(): void {
@@ -192,6 +251,14 @@ export class Game {
   tick(dtSec: number): void {
     const now = Date.now();
     this.s.buffs = this.s.buffs.filter((b) => b.expiresAt > now);
+    if (this.combo > 0 && now > this.comboExpiresAt) this.combo = 0;
+    if (this.bag && now > this.bag.spawnedAt + this.bag.duration) {
+      this.bag = null;
+      this.nextBagAt = now + (BAG_MIN_GAP_SEC + Math.random() * (BAG_MAX_GAP_SEC - BAG_MIN_GAP_SEC)) * 1000;
+    }
+    if (!this.bag && now >= this.nextBagAt && this.s.runEarnings >= EVENT_EARNINGS_FLOOR) {
+      this.bag = { spawnedAt: now, duration: BAG_FLIGHT_MS };
+    }
     const mods = this.mods();
     for (const def of STATIONS) {
       const st = this.s.stations[def.id];
@@ -246,8 +313,12 @@ export class Game {
     this.s.cash = this.s.lastRunEarnings * startPct;
     for (const def of STATIONS) this.s.stations[def.id] = { level: 0, progress: 0 };
     this.s.stations[STATIONS[0].id].level = 1;
-    this.s.nextEventAt = Date.now() + 75_000;
+    this.s.nextEventAt = Date.now() + 30_000;
     this.pending = null;
+    this.combo = 0;
+    this.frenzyMeter = 0;
+    this.frenzyUntil = 0;
+    this.bag = null;
     this.save();
   }
 

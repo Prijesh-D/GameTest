@@ -42,6 +42,14 @@ the scene to rush it. The scene is a pure visualization layer in
 `src/scene.ts` — the engine stays the source of truth and feeds it through
 `game.fxQueue`, so a future sprite-art pass swaps in without logic changes.
 
+### 4. Active play layer ⚡
+Idle is the floor, not the game. Tapping stalls chains a **combo** (each tap
+within 2s adds +5% tap earnings, up to ×3) and charges the **frenzy meter** —
+fill it (~25 taps) and the whole alley goes golden for 10s at 3× speed with
+coins raining. A **golden bag** 💰 flies across the scene every ~25–55s: tap it
+for a big payout, with a 20% chance of an instant-frenzy jackpot. Miss it and
+it's gone.
+
 ### Standard idle-game plumbing
 - 6 stations with exponential upgrade costs (~1.13–1.16× per level) and
   milestone revenue doublings at Lv 25 / 50 / every 100

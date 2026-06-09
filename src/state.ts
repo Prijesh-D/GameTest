@@ -47,7 +47,7 @@ export function defaultState(): GameState {
     mutationId: null,
     stations,
     buffs: [],
-    nextEventAt: Date.now() + 75_000,
+    nextEventAt: Date.now() + 30_000,
     lastSaved: Date.now(),
     buyAmount: 1,
   };

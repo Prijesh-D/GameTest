@@ -4,7 +4,7 @@
 
 import { STATIONS } from './content';
 import { fmt } from './format';
-import type { Game } from './game';
+import { FRENZY_DURATION_MS, type Game } from './game';
 
 const CUSTOMERS = ['🐀', '🐦', '👵', '🦔', '🐈', '🦆', '🐸', '🐕'];
 const EMOJI_FONT = '"Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif';
@@ -57,6 +57,8 @@ export class Scene {
   private jumps: number[] = STATIONS.map(() => 0);
   private nextCustomerIn = 2;
   private last = performance.now();
+  private prevCombo = 0;
+  private comboPop = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -93,7 +95,31 @@ export class Scene {
     return { x: col * w + 8, y: SIGN_TOP + row * h + 4, w: w - 16, h: h - 10 };
   }
 
+  private bagPos(): { x: number; y: number } | null {
+    const bag = this.game.bag;
+    if (!bag) return null;
+    const p = (Date.now() - bag.spawnedAt) / bag.duration;
+    return {
+      x: -30 + (this.W + 60) * p,
+      y: 64 + Math.sin(p * Math.PI * 4) * 18,
+    };
+  }
+
   private tap(e: PointerEvent): void {
+    // Golden bag has priority over stalls.
+    const bp = this.bagPos();
+    if (bp && Math.hypot(e.offsetX - bp.x, e.offsetY - bp.y) < 26) {
+      const got = this.game.collectBag();
+      if (got) {
+        if (got.jackpot) {
+          this.texts.push({ x: bp.x, y: bp.y, text: '⚡ JACKPOT! FRENZY! ⚡', age: 0, life: 1.4 });
+        } else {
+          this.texts.push({ x: bp.x, y: bp.y, text: `+$${fmt(got.amount)}`, age: 0, life: 1.2 });
+        }
+        for (let i = 0; i < 6; i++) this.spawnCoin(bp.x, bp.y);
+      }
+      return;
+    }
     const n = this.visibleCount();
     for (let i = 0; i < n; i++) {
       const r = this.slotRect(i);
@@ -162,6 +188,28 @@ export class Scene {
         life: 1.2,
         size: 12,
       });
+    }
+
+    // Combo pop animation tracking.
+    if (this.game.combo > this.prevCombo) this.comboPop = 1;
+    this.comboPop = Math.max(0, this.comboPop - dt * 4);
+    this.prevCombo = this.game.combo;
+
+    // Coin rain during frenzy.
+    if (this.game.frenzyActive() && this.particles.length < 80) {
+      for (let i = 0; i < 2; i++) {
+        this.particles.push({
+          emoji: '🪙',
+          x: Math.random() * this.W,
+          y: -10,
+          vx: (Math.random() - 0.5) * 30,
+          vy: 90 + Math.random() * 80,
+          gravity: 60,
+          age: 0,
+          life: 1.6,
+          size: 11 + Math.random() * 6,
+        });
+      }
     }
 
     for (const p of this.particles) {
@@ -323,6 +371,56 @@ export class Scene {
       ctx.fillText(ft.text, ft.x, ft.y);
     }
     ctx.globalAlpha = 1;
+
+    // Frenzy meter (drains during frenzy, fills with taps otherwise)
+    const frenzy = this.game.frenzyActive();
+    const meterY = this.H - SIDEWALK - 2;
+    const fillFrac = frenzy
+      ? Math.max(0, (this.game.frenzyUntil - Date.now()) / FRENZY_DURATION_MS)
+      : this.game.frenzyMeter;
+    ctx.fillStyle = '#10131a';
+    ctx.fillRect(8, meterY, this.W - 16, 5);
+    ctx.fillStyle = frenzy && Math.sin(t * 16) > 0 ? '#fff3c4' : '#fbbf24';
+    ctx.fillRect(8, meterY, (this.W - 16) * Math.min(fillFrac, 1), 5);
+
+    // Frenzy mode: golden wash + banner
+    if (frenzy) {
+      ctx.fillStyle = `rgba(251,191,36,${0.08 + 0.05 * Math.sin(t * 10)})`;
+      ctx.fillRect(-4, -4, this.W + 8, this.H + 8);
+      ctx.font = `800 ${22 + Math.sin(t * 12) * 3}px system-ui`;
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillText('⚡ FRENZY ⚡', this.W / 2, this.H / 2);
+    }
+
+    // Combo counter
+    if (this.game.combo >= 3 && Date.now() < this.game.comboExpiresAt) {
+      const scale = 1 + this.comboPop * 0.4;
+      ctx.font = `800 ${Math.round(15 * scale)}px system-ui`;
+      ctx.fillStyle = '#f87171';
+      ctx.textAlign = 'right';
+      ctx.fillText(`🔥 ${this.game.combo} COMBO ×${this.game.comboMult().toFixed(2)}`, this.W - 10, 46);
+      ctx.textAlign = 'center';
+    }
+
+    // Golden bag flying across
+    const bp = this.bagPos();
+    if (bp) {
+      ctx.fillStyle = 'rgba(251,191,36,0.18)';
+      ctx.beginPath();
+      ctx.arc(bp.x, bp.y, 24 + Math.sin(t * 10) * 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = `26px ${EMOJI_FONT}`;
+      ctx.fillText('💰', bp.x, bp.y);
+    }
+
+    // Idle nudge when the player hasn't tapped in a while
+    if (Date.now() - this.game.lastTapAt > 10_000 && !frenzy) {
+      ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 3);
+      ctx.font = '700 12px system-ui';
+      ctx.fillStyle = '#9aa3b5';
+      ctx.fillText('👆 tap stalls to chain combos & charge FRENZY', this.W / 2, this.H - SIDEWALK - 14);
+      ctx.globalAlpha = 1;
+    }
 
     // Chaos: the event emoji bounces over the alley while it's unresolved
     const ev = this.game.pending;
