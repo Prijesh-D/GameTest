@@ -1,15 +1,29 @@
-// Canvas scene: a live view of the alley. Pure visualization layer — the
-// engine stays the source of truth; the scene reads game state each frame
-// and drains game.fxQueue for transient effects (coins, rush bursts).
+// Canvas scene: a live simulation view of the alley. Pure visualization —
+// the engine stays the source of truth; the scene reads game state each
+// frame and drains game.fxQueue for cycle/rush events, which it turns into
+// customers being served, products handed over, and coins flying to the
+// cash counter.
 
 import { STATIONS } from './content';
 import { fmt } from './format';
 import { FRENZY_DURATION_MS, type Game } from './game';
 
 const CUSTOMERS = ['🐀', '🐦', '👵', '🦔', '🐈', '🦆', '🐸', '🐕'];
+const EMOTES = ['😋', '❤️', '🤑', '✨'];
+const PRODUCTS: Record<string, string> = {
+  dumpster: '🍕',
+  crusher: '🥤',
+  cauldron: '🥣',
+  sorter: '🔧',
+  atelier: '🖼️',
+  boutique: '👜',
+};
 const EMOJI_FONT = '"Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif';
 const SIGN_TOP = 44; // px reserved for the wall sign
-const SIDEWALK = 26; // px reserved for the customer walkway
+const SIDEWALK = 26; // px reserved for the walkway
+const QUEUE_MAX = 3;
+const SERVE_COOLDOWN_MS = 500;
+const CUSTOMER_CAP = 12;
 
 interface Particle {
   emoji: string;
@@ -31,13 +45,29 @@ interface FloatText {
   life: number;
 }
 
+// A thing flying from A to B along an arc (products to customers, coins to the till).
+interface Tween {
+  emoji: string;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  age: number;
+  dur: number;
+  arc: number;
+  size: number;
+}
+
 interface Customer {
   emoji: string;
   x: number;
+  y: number;
+  state: 'in' | 'approach' | 'queue' | 'served' | 'leave';
+  station: number; // slot index, -1 for passers-by
+  queuePos: number;
   speed: number;
-  state: 'in' | 'wait' | 'out';
-  targetX: number;
-  waitLeft: number;
+  servedAt: number;
+  phase: number; // animation offset so walkers don't sync
 }
 
 interface SlotRect {
@@ -47,15 +77,33 @@ interface SlotRect {
   h: number;
 }
 
+function moveToward(c: { x: number; y: number }, tx: number, ty: number, speed: number, dt: number): boolean {
+  const dx = tx - c.x;
+  const dy = ty - c.y;
+  const dist = Math.hypot(dx, dy);
+  const step = speed * dt;
+  if (dist <= step) {
+    c.x = tx;
+    c.y = ty;
+    return true;
+  }
+  c.x += (dx / dist) * step;
+  c.y += (dy / dist) * step;
+  return false;
+}
+
 export class Scene {
   private ctx: CanvasRenderingContext2D;
   private W = 0;
   private H = 0;
   private particles: Particle[] = [];
   private texts: FloatText[] = [];
+  private tweens: Tween[] = [];
   private customers: Customer[] = [];
   private jumps: number[] = STATIONS.map(() => 0);
-  private nextCustomerIn = 2;
+  private lastServeAt: number[] = STATIONS.map(() => 0);
+  private boss = { x: 60, y: 150, tx: 60, ty: 150, idleUntil: 0 };
+  private nextCustomerIn = 1.5;
   private last = performance.now();
   private prevCombo = 0;
   private comboPop = 0;
@@ -95,6 +143,15 @@ export class Scene {
     return { x: col * w + 8, y: SIGN_TOP + row * h + 4, w: w - 16, h: h - 10 };
   }
 
+  private sidewalkY(): number {
+    return this.H - 12;
+  }
+
+  private queueSpot(station: number, pos: number): { x: number; y: number } {
+    const r = this.slotRect(station);
+    return { x: r.x + 16 + pos * 18, y: r.y + r.h - 4 };
+  }
+
   private bagPos(): { x: number; y: number } | null {
     const bag = this.game.bag;
     if (!bag) return null;
@@ -128,6 +185,11 @@ export class Scene {
         if (this.game.s.stations[def.id].level > 0) {
           this.game.rush(def.id);
           this.jumps[i] = performance.now() + 300;
+          // The boss hustles over to whatever you're rushing.
+          const spot = this.queueSpot(i, 0);
+          this.boss.tx = spot.x + r.w * 0.5;
+          this.boss.ty = spot.y;
+          this.boss.idleUntil = Date.now() + 2500;
         }
         return;
       }
@@ -158,42 +220,62 @@ export class Scene {
     });
   }
 
+  private queueAt(station: number): Customer[] {
+    return this.customers
+      .filter((c) => c.station === station && c.state === 'queue')
+      .sort((a, b) => a.queuePos - b.queuePos);
+  }
+
+  // Serve the first customer in a stall's queue: product flies over, customer
+  // reacts, pays (coin flies to the till), and leaves happy.
+  private serve(c: Customer, station: number): void {
+    const r = this.slotRect(station);
+    c.state = 'served';
+    c.servedAt = Date.now();
+    this.tweens.push({
+      emoji: PRODUCTS[STATIONS[station].id] ?? '🗑️',
+      x0: r.x + r.w / 2,
+      y0: r.y + r.h / 2,
+      x1: c.x,
+      y1: c.y - 10,
+      age: 0,
+      dur: 0.35,
+      arc: 16,
+      size: 14,
+    });
+    for (const other of this.customers) {
+      if (other !== c && other.station === station && other.queuePos > 0) other.queuePos--;
+    }
+  }
+
   private update(dt: number): void {
     const n = this.visibleCount();
+    const now = Date.now();
 
-    // Drain engine fx into coins / rush bursts.
+    // Combo pop animation tracking.
+    if (this.game.combo > this.prevCombo) this.comboPop = 1;
+    this.comboPop = Math.max(0, this.comboPop - dt * 4);
+    this.prevCombo = this.game.combo;
+
+    // Engine fx → serve animations where a customer is waiting, coin pops otherwise.
     for (const fx of this.game.fxQueue.splice(0)) {
       const idx = STATIONS.findIndex((d) => d.id === fx.id);
       if (idx < 0 || idx >= n) continue;
       const r = this.slotRect(idx);
       const cx = r.x + r.w / 2;
       const cy = r.y + r.h / 2;
-      const burst = fx.kind === 'rush' ? 3 : 1;
-      for (let i = 0; i < burst; i++) this.spawnCoin(cx, cy);
+      const waiting = this.queueAt(idx);
+      if (waiting.length > 0 && now - this.lastServeAt[idx] > SERVE_COOLDOWN_MS) {
+        this.lastServeAt[idx] = now;
+        this.serve(waiting[0], idx);
+      } else {
+        this.spawnCoin(cx, cy);
+      }
       if (fx.kind === 'rush') {
+        for (let i = 0; i < 2; i++) this.spawnCoin(cx, cy);
         this.texts.push({ x: cx, y: r.y + 6, text: `+$${fmt(fx.amount)}`, age: 0, life: 0.9 });
       }
     }
-
-    // Sparkles while any buff is active.
-    if (this.game.s.buffs.length > 0 && Math.random() < 0.08 && this.particles.length < 80) {
-      this.particles.push({
-        emoji: '✨',
-        x: Math.random() * this.W,
-        y: SIGN_TOP + Math.random() * (this.H - SIGN_TOP - SIDEWALK),
-        vx: 0,
-        vy: -14,
-        gravity: 0,
-        age: 0,
-        life: 1.2,
-        size: 12,
-      });
-    }
-
-    // Combo pop animation tracking.
-    if (this.game.combo > this.prevCombo) this.comboPop = 1;
-    this.comboPop = Math.max(0, this.comboPop - dt * 4);
-    this.prevCombo = this.game.combo;
 
     // Coin rain during frenzy.
     if (this.game.frenzyActive() && this.particles.length < 80) {
@@ -212,6 +294,21 @@ export class Scene {
       }
     }
 
+    // Sparkles while any buff is active.
+    if (this.game.s.buffs.length > 0 && Math.random() < 0.08 && this.particles.length < 80) {
+      this.particles.push({
+        emoji: '✨',
+        x: Math.random() * this.W,
+        y: SIGN_TOP + Math.random() * (this.H - SIGN_TOP - SIDEWALK),
+        vx: 0,
+        vy: -14,
+        gravity: 0,
+        age: 0,
+        life: 1.2,
+        size: 12,
+      });
+    }
+
     for (const p of this.particles) {
       p.age += dt;
       p.vy += p.gravity * dt;
@@ -226,37 +323,146 @@ export class Scene {
     }
     this.texts = this.texts.filter((ft) => ft.age < ft.life);
 
-    // Ambient customers: spawn rate scales with how built-out the alley is.
-    const unlockedIdx: number[] = [];
-    for (let i = 0; i < n; i++) {
-      if (this.game.s.stations[STATIONS[i].id].level > 0) unlockedIdx.push(i);
-    }
+    for (const tw of this.tweens) tw.age += dt;
+    this.tweens = this.tweens.filter((tw) => tw.age < tw.dur);
+
+    // Customer spawning: prefer stalls with queue space, else a passer-by.
     this.nextCustomerIn -= dt;
-    if (this.nextCustomerIn <= 0 && this.customers.length < 8 && unlockedIdx.length > 0) {
-      this.nextCustomerIn = (2 + Math.random() * 6) / Math.min(unlockedIdx.length, 4);
-      const slot = unlockedIdx[Math.floor(Math.random() * unlockedIdx.length)];
-      const r = this.slotRect(slot);
-      this.customers.push({
-        emoji: CUSTOMERS[Math.floor(Math.random() * CUSTOMERS.length)],
-        x: -20,
-        speed: 40 + Math.random() * 30,
-        state: 'in',
-        targetX: r.x + r.w / 2 + (Math.random() - 0.5) * 20,
-        waitLeft: 1.5 + Math.random() * 3,
-      });
+    if (this.nextCustomerIn <= 0 && this.customers.length < CUSTOMER_CAP) {
+      const unlockedCount = STATIONS.filter((d, i) => i < n && this.game.s.stations[d.id].level > 0).length;
+      this.nextCustomerIn = (1.2 + Math.random() * 2.5) / Math.max(Math.min(unlockedCount, 4), 1);
+      const candidates: number[] = [];
+      for (let i = 0; i < n; i++) {
+        if (this.game.s.stations[STATIONS[i].id].level <= 0) continue;
+        const heading = this.customers.filter((c) => c.station === i && c.state !== 'leave').length;
+        if (heading < QUEUE_MAX) candidates.push(i);
+      }
+      const emoji = CUSTOMERS[Math.floor(Math.random() * CUSTOMERS.length)];
+      if (candidates.length > 0 && Math.random() > 0.25) {
+        const station = candidates[Math.floor(Math.random() * candidates.length)];
+        const queuePos = this.customers.filter((c) => c.station === station && c.state !== 'leave').length;
+        this.customers.push({
+          emoji,
+          x: -20,
+          y: this.sidewalkY(),
+          state: 'in',
+          station,
+          queuePos,
+          speed: 55 + Math.random() * 30,
+          servedAt: 0,
+          phase: Math.random() * 10,
+        });
+      } else if (unlockedCount > 0) {
+        // Window shopper: strolls through without buying.
+        this.customers.push({
+          emoji,
+          x: -20,
+          y: this.sidewalkY(),
+          state: 'leave',
+          station: -1,
+          queuePos: 0,
+          speed: 40 + Math.random() * 35,
+          servedAt: 0,
+          phase: Math.random() * 10,
+        });
+      }
     }
+
+    // Customer state machine.
     for (const c of this.customers) {
-      if (c.state === 'in') {
-        c.x += c.speed * dt;
-        if (c.x >= c.targetX) c.state = 'wait';
-      } else if (c.state === 'wait') {
-        c.waitLeft -= dt;
-        if (c.waitLeft <= 0) c.state = 'out';
-      } else {
-        c.x += c.speed * dt;
+      // If the run was rebranded under them, head home.
+      if (c.station >= 0 && this.game.s.stations[STATIONS[c.station].id].level <= 0) {
+        c.station = -1;
+        c.state = 'leave';
+      }
+      switch (c.state) {
+        case 'in': {
+          const spot = this.queueSpot(c.station, c.queuePos);
+          if (moveToward(c, spot.x, this.sidewalkY(), c.speed, dt)) c.state = 'approach';
+          break;
+        }
+        case 'approach': {
+          const spot = this.queueSpot(c.station, c.queuePos);
+          if (moveToward(c, spot.x, spot.y, c.speed * 0.8, dt)) c.state = 'queue';
+          break;
+        }
+        case 'queue': {
+          const spot = this.queueSpot(c.station, c.queuePos);
+          moveToward(c, spot.x, spot.y, c.speed * 0.8, dt);
+          break;
+        }
+        case 'served': {
+          if (now - c.servedAt > 500) {
+            this.texts.push({
+              x: c.x,
+              y: c.y - 18,
+              text: EMOTES[Math.floor(Math.random() * EMOTES.length)],
+              age: 0,
+              life: 0.8,
+            });
+            // Payment: coin flies from the customer up to the cash counter.
+            this.tweens.push({
+              emoji: '🪙',
+              x0: c.x,
+              y0: c.y,
+              x1: 24,
+              y1: -16,
+              age: 0,
+              dur: 0.6,
+              arc: 30,
+              size: 13,
+            });
+            c.state = 'leave';
+          }
+          break;
+        }
+        case 'leave': {
+          if (Math.abs(c.y - this.sidewalkY()) > 2) {
+            moveToward(c, c.x + 14, this.sidewalkY(), c.speed, dt);
+          } else {
+            c.x += c.speed * dt;
+          }
+          break;
+        }
       }
     }
     this.customers = this.customers.filter((c) => c.x < this.W + 24);
+
+    // Boss raccoon: runs between stalls, inspecting the empire.
+    const atTarget = Math.hypot(this.boss.x - this.boss.tx, this.boss.y - this.boss.ty) < 2;
+    if (!atTarget) {
+      moveToward(this.boss, this.boss.tx, this.boss.ty, 85, dt);
+    } else if (now > this.boss.idleUntil) {
+      const unlockedIdx: number[] = [];
+      for (let i = 0; i < n; i++) {
+        if (this.game.s.stations[STATIONS[i].id].level > 0) unlockedIdx.push(i);
+      }
+      if (unlockedIdx.length > 0) {
+        const slot = unlockedIdx[Math.floor(Math.random() * unlockedIdx.length)];
+        const r = this.slotRect(slot);
+        this.boss.tx = r.x + r.w / 2 + (Math.random() - 0.5) * 30;
+        this.boss.ty = r.y + r.h - 4;
+        this.boss.idleUntil = now + 2000 + Math.random() * 3000;
+      }
+    }
+  }
+
+  private drawShadow(x: number, y: number, w: number): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 4, w, w * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawCharacter(emoji: string, x: number, y: number, size: number, rock: number): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rock);
+    ctx.font = `${size}px ${EMOJI_FONT}`;
+    ctx.fillText(emoji, 0, 0);
+    ctx.restore();
   }
 
   private draw(t: number): void {
@@ -314,7 +520,8 @@ export class Scene {
     // Stalls
     const n = this.visibleCount();
     const mods = this.game.mods();
-    const now = performance.now();
+    const pnow = performance.now();
+    const now = Date.now();
     for (let i = 0; i < n; i++) {
       const def = STATIONS[i];
       const st = this.game.s.stations[def.id];
@@ -329,8 +536,10 @@ export class Scene {
       ctx.fill();
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.font = `30px ${EMOJI_FONT}`;
-      ctx.fillText(locked ? '🔒' : def.emoji, r.x + r.w / 2, r.y + r.h / 2 - 4);
+      // Stall emoji pulses when it just served someone.
+      const servePulse = Math.max(0, 1 - (now - this.lastServeAt[i]) / 200);
+      ctx.font = `${30 + servePulse * 6}px ${EMOJI_FONT}`;
+      ctx.fillText(locked ? '🔒' : def.emoji, r.x + r.w / 2, r.y + r.h / 2 - 6);
       if (!locked) {
         ctx.font = '700 10px system-ui';
         ctx.fillStyle = '#fbbf24';
@@ -338,21 +547,48 @@ export class Scene {
         ctx.fillText(`Lv ${st.level}`, r.x + 7, r.y + 11);
         ctx.textAlign = 'center';
         ctx.fillStyle = '#10131a';
-        ctx.fillRect(r.x + 8, r.y + r.h - 10, r.w - 16, 4);
+        ctx.fillRect(r.x + 8, r.y + r.h - 8, r.w - 16, 4);
         ctx.fillStyle = '#6ee7a0';
-        ctx.fillRect(r.x + 8, r.y + r.h - 10, (r.w - 16) * Math.min(st.progress, 1), 4);
-        const bob = now < this.jumps[i] ? -7 : Math.sin(t * 4 * mods.speed + i * 1.7) * 2.5;
+        ctx.fillRect(r.x + 8, r.y + r.h - 8, (r.w - 16) * Math.min(st.progress, 1), 4);
+        const bob = pnow < this.jumps[i] ? -7 : Math.sin(t * 4 * mods.speed + i * 1.7) * 2.5;
         ctx.font = `16px ${EMOJI_FONT}`;
         ctx.fillText('🦝', r.x + r.w - 16, r.y + r.h - 18 + bob);
       }
       ctx.globalAlpha = 1;
     }
 
-    // Customers on the sidewalk
-    ctx.font = `15px ${EMOJI_FONT}`;
+    // Boss raccoon (top hat, important)
+    const bossMoving = Math.hypot(this.boss.x - this.boss.tx, this.boss.y - this.boss.ty) > 2;
+    const bossRock = bossMoving ? Math.sin(t * 14) * 0.12 : 0;
+    const bossBob = bossMoving ? 0 : Math.sin(t * 3) * 1.5;
+    this.drawShadow(this.boss.x, this.boss.y, 9);
+    this.drawCharacter('🦝', this.boss.x, this.boss.y - 8 + bossBob, 19, bossRock);
+    this.drawCharacter('🎩', this.boss.x + bossRock * 14, this.boss.y - 21 + bossBob, 11, bossRock);
+
+    // Customers
     for (const c of this.customers) {
-      const bob = c.state === 'wait' ? Math.sin(t * 8) * 2 : Math.sin(c.x * 0.15) * 1.5;
-      ctx.fillText(c.emoji, c.x, this.H - 11 + bob);
+      const walking = c.state === 'in' || c.state === 'approach' || c.state === 'leave';
+      const rock = walking ? Math.sin(t * 12 + c.phase) * 0.12 : 0;
+      const bob = walking ? 0 : Math.sin(t * 4 + c.phase) * 1.5;
+      this.drawShadow(c.x, c.y, 7);
+      this.drawCharacter(c.emoji, c.x, c.y - 7 + bob, 15, rock);
+      // Waiting customers daydream about the product.
+      if (c.state === 'queue') {
+        ctx.globalAlpha = 0.85;
+        ctx.font = `10px ${EMOJI_FONT}`;
+        ctx.fillText(PRODUCTS[STATIONS[c.station].id] ?? '🗑️', c.x + 7, c.y - 20 + Math.sin(t * 3 + c.phase) * 1.5);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Flying tweens (products, payments)
+    for (const tw of this.tweens) {
+      const p = Math.min(tw.age / tw.dur, 1);
+      const ease = p * (2 - p); // ease-out
+      const x = tw.x0 + (tw.x1 - tw.x0) * ease;
+      const y = tw.y0 + (tw.y1 - tw.y0) * ease - Math.sin(p * Math.PI) * tw.arc;
+      ctx.font = `${tw.size}px ${EMOJI_FONT}`;
+      ctx.fillText(tw.emoji, x, y);
     }
 
     // Particles (coins, sparkles)
@@ -363,11 +599,12 @@ export class Scene {
     }
     ctx.globalAlpha = 1;
 
-    // Floating earnings text
+    // Floating text (earnings, emotes)
     ctx.font = '800 13px system-ui';
     ctx.fillStyle = '#6ee7a0';
     for (const ft of this.texts) {
       ctx.globalAlpha = Math.max(0, 1 - ft.age / ft.life);
+      ctx.font = ft.text.startsWith('+$') ? '800 13px system-ui' : `14px ${EMOJI_FONT}`;
       ctx.fillText(ft.text, ft.x, ft.y);
     }
     ctx.globalAlpha = 1;

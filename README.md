@@ -33,14 +33,17 @@ between two random **mutations** that change the rules of the next run
 bigger numbers.
 
 ### 3. Live alley scene 🎬
-A canvas view of the alley sits above the controls: raccoon workers bob at
-their stalls (faster when speed-buffed), ambient customers (rats, pigeons,
-grandmas) wander in and queue on the sidewalk, coins pop off every completed
-cycle, buffs rain sparkles, chaos events shake the screen with the event emoji
-bouncing over the alley, and Night Shift tints everything blue. Tap a stall in
-the scene to rush it. The scene is a pure visualization layer in
-`src/scene.ts` — the engine stays the source of truth and feeds it through
-`game.fxQueue`, so a future sprite-art pass swaps in without logic changes.
+A canvas simulation of the alley sits above the controls: customers (rats,
+pigeons, grandmas) walk in off the street, queue at stalls daydreaming about
+the product, get served — the item flies from the stall to their hands — react
+with an emote, and pay with a coin that flies up to your cash counter before
+strolling off. A boss raccoon in a top hat runs around inspecting stalls (and
+hustles over to whatever you rush). Raccoon workers bob faster under speed
+buffs, coins pop off every cycle, buffs rain sparkles, chaos events shake the
+screen, and Night Shift tints everything blue. Tap a stall in the scene to
+rush it. The scene is a pure visualization layer in `src/scene.ts` — the
+engine stays the source of truth and feeds it through `game.fxQueue`, so a
+future sprite-art pass swaps in without logic changes.
 
 ### 4. Active play layer ⚡
 Idle is the floor, not the game. Tapping stalls chains a **combo** (each tap
