@@ -32,6 +32,16 @@ between two random **mutations** that change the rules of the next run
 "Influencer Era", etc.) — so runs play differently instead of just being
 bigger numbers.
 
+### 3. Live alley scene 🎬
+A canvas view of the alley sits above the controls: raccoon workers bob at
+their stalls (faster when speed-buffed), ambient customers (rats, pigeons,
+grandmas) wander in and queue on the sidewalk, coins pop off every completed
+cycle, buffs rain sparkles, chaos events shake the screen with the event emoji
+bouncing over the alley, and Night Shift tints everything blue. Tap a stall in
+the scene to rush it. The scene is a pure visualization layer in
+`src/scene.ts` — the engine stays the source of truth and feeds it through
+`game.fxQueue`, so a future sprite-art pass swaps in without logic changes.
+
 ### Standard idle-game plumbing
 - 6 stations with exponential upgrade costs (~1.13–1.16× per level) and
   milestone revenue doublings at Lv 25 / 50 / every 100
@@ -47,6 +57,7 @@ bigger numbers.
 | `src/content.ts` | All stations, chaos events, mutations, reviews (pure data) |
 | `src/game.ts` | Engine: economy math, tick loop, chaos scheduling, prestige |
 | `src/state.ts` | Save state shape + localStorage persistence |
+| `src/scene.ts` | Canvas scene: workers, customers, coins, chaos shake |
 | `src/ui.ts` | DOM rendering, modals, toasts |
 | `src/main.ts` | Boot + tick/autosave timers |
 

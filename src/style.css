@@ -88,6 +88,21 @@ body {
   to { opacity: 1; }
 }
 
+/* Scene canvas */
+.scene {
+  display: block;
+  width: 100%;
+  height: 260px;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #0e1015;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* Rebrand panel */
 .rebrand {
   display: flex;

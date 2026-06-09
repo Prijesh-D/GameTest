@@ -40,12 +40,20 @@ function pickWeighted(items: WeightedOutcome[]): WeightedOutcome {
   return items[items.length - 1];
 }
 
+// Transient visual events the scene renderer drains each frame.
+export interface Fx {
+  id: string;
+  amount: number;
+  kind: 'cycle' | 'rush';
+}
+
 export class Game {
   s: GameState;
   pending: ChaosEvent | null = null;
   eventDeadline = 0;
   readonly offlineGain: number;
   onChaos: ((ev: ChaosEvent, deadline: number) => void) | null = null;
+  fxQueue: Fx[] = [];
   private lastEventId = '';
 
   constructor() {
@@ -172,6 +180,7 @@ export class Game {
     const earned = this.revenuePerCycle(def, mods) * (1 + mods.tap);
     st.progress = 0;
     this.earn(earned);
+    this.pushFx(id, earned, 'rush');
     return earned;
   }
 
@@ -191,7 +200,9 @@ export class Game {
       if (st.progress >= 1) {
         const cycles = Math.floor(st.progress);
         st.progress -= cycles;
-        this.earn(this.revenuePerCycle(def, mods) * cycles);
+        const earned = this.revenuePerCycle(def, mods) * cycles;
+        this.earn(earned);
+        this.pushFx(def.id, earned, 'cycle');
       }
     }
     if (!this.pending && now >= this.s.nextEventAt && this.s.runEarnings >= EVENT_EARNINGS_FLOOR) {
@@ -238,6 +249,10 @@ export class Game {
     this.s.nextEventAt = Date.now() + 75_000;
     this.pending = null;
     this.save();
+  }
+
+  private pushFx(id: string, amount: number, kind: 'cycle' | 'rush'): void {
+    if (this.fxQueue.length < 60) this.fxQueue.push({ id, amount, kind });
   }
 
   private earn(amount: number): void {

@@ -1,6 +1,7 @@
 import { REVIEWS, STATIONS, type ChaosEvent, type StationDef } from './content';
 import { fmt } from './format';
 import { CRED_BASE, EVENT_TIMEOUT_MS, type Game } from './game';
+import { Scene } from './scene';
 import { SAVE_KEY } from './state';
 
 interface CardRefs {
@@ -24,6 +25,7 @@ export function initUI(game: Game): void {
       <div class="rps" id="rps"></div>
       <div class="chips" id="chips"></div>
     </header>
+    <canvas id="scene" class="scene"></canvas>
     <section class="rebrand">
       <div>
         <div class="rebrand-title">📈 Rebrand</div>
@@ -254,6 +256,8 @@ export function initUI(game: Game): void {
       }
     });
   }
+
+  new Scene($('#scene') as HTMLCanvasElement, game);
 
   window.setInterval(update, 100);
   window.setInterval(rotateReview, 9000);
