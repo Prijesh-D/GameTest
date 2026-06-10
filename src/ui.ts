@@ -1,3 +1,4 @@
+import { sfx } from './audio';
 import { REVIEWS, STATIONS, type ChaosEvent, type StationDef } from './content';
 import { fmt } from './format';
 import { CRED_BASE, EVENT_TIMEOUT_MS, type Game } from './game';
@@ -33,14 +34,24 @@ export function initUI(game: Game): void {
       </div>
       <button id="rebrand-btn" class="btn-rebrand" disabled>Locked</button>
     </section>
+    <section class="quest">
+      <div class="quest-emoji" id="quest-emoji"></div>
+      <div class="quest-body">
+        <div class="quest-desc" id="quest-desc"></div>
+        <div class="quest-bar"><div class="quest-fill" id="quest-fill"></div></div>
+      </div>
+      <button id="quest-claim" class="btn-claim" style="display:none">CLAIM</button>
+    </section>
     <div class="toolbar">
       <span>Stations</span>
-      <button id="buy-toggle" class="btn-toggle"></button>
+      <span class="toolbar-btns">
+        <button id="settings-btn" class="btn-toggle" title="Stats & settings">⚙️</button>
+        <button id="buy-toggle" class="btn-toggle"></button>
+      </span>
     </div>
     <section class="stations" id="stations"></section>
     <footer class="ticker">
       <span class="review" id="review"></span>
-      <button class="reset" id="reset">reset</button>
     </footer>
     <div id="toasts" class="toasts"></div>
     <div id="modal-root"></div>
@@ -58,6 +69,14 @@ export function initUI(game: Game): void {
   const reviewEl = $('#review');
   const toastsEl = $('#toasts');
   const modalRoot = $('#modal-root');
+  const questEmoji = $('#quest-emoji');
+  const questDesc = $('#quest-desc');
+  const questFill = $('#quest-fill');
+  const questClaim = $('#quest-claim') as HTMLButtonElement;
+  const sceneCanvas = $('#scene') as HTMLCanvasElement;
+
+  sfx.enabled = game.s.soundOn;
+  const scene = new Scene(sceneCanvas, game);
 
   const cards: CardRefs[] = STATIONS.map((def) => {
     const card = document.createElement('div');
@@ -84,7 +103,18 @@ export function initUI(game: Game): void {
       if (earned > 0) floater(card, `+$${fmt(earned)}`);
     });
     refs.buy.addEventListener('click', () => {
+      const before = game.s.stations[def.id].level;
       game.buy(def.id);
+      const after = game.s.stations[def.id].level;
+      if (after > before) {
+        if (before === 0) {
+          sfx.unlock();
+          toast(`${def.emoji} ${def.name} unlocked!`);
+          scene.celebrateUnlock(def.id);
+        } else {
+          sfx.buy();
+        }
+      }
       update();
     });
     return refs;
@@ -95,11 +125,15 @@ export function initUI(game: Game): void {
     update();
   });
 
-  $('#reset').addEventListener('click', () => {
-    if (window.confirm('Burn it all down and start over from one dumpster?')) {
-      localStorage.removeItem(SAVE_KEY);
-      window.location.reload();
-    }
+  $('#settings-btn').addEventListener('click', showSettings);
+
+  questClaim.addEventListener('click', () => {
+    const res = game.claimQuest();
+    if (!res) return;
+    sfx.claim();
+    toast(`${res.quest.emoji} Quest complete! +$${fmt(res.reward)}`);
+    scene.confettiBurst(sceneCanvas.clientWidth / 2, 90, 18);
+    update();
   });
 
   rebrandBtn.addEventListener('click', () => {
@@ -109,6 +143,7 @@ export function initUI(game: Game): void {
   });
 
   game.onChaos = (ev: ChaosEvent, deadline: number): void => {
+    sfx.chaos();
     modalRoot.innerHTML = `
       <div class="overlay"><div class="modal">
         <div class="modal-emoji">${ev.emoji}</div>
@@ -165,13 +200,60 @@ export function initUI(game: Game): void {
         </span>
       `;
       el.addEventListener('click', () => {
+        scene.celebrateRebrand(m.name);
         game.rebrand(m.id);
+        sfx.rebrand();
         modalRoot.innerHTML = '';
         toast(`📈 Rebranded! +${gain} 🏆 Street Cred. Welcome to the ${m.name} era.`);
         update();
       });
       holder.appendChild(el);
     }
+    (modalRoot.querySelector('.cancel') as HTMLButtonElement).addEventListener('click', () => {
+      modalRoot.innerHTML = '';
+    });
+  }
+
+  function showSettings(): void {
+    const st = game.s.stats;
+    const rows: [string, string][] = [
+      ['💵 Lifetime earned', `$${fmt(game.s.totalEarnings)}`],
+      ['👆 Stall taps', fmt(st.taps)],
+      ['♻️ Cycles completed', fmt(st.serves)],
+      ['🌀 Chaos survived', fmt(st.chaosResolved)],
+      ['💰 Golden bags caught', fmt(st.bagsCaught)],
+      ['⚡ Frenzies triggered', fmt(st.frenzies)],
+      ['🔥 Best combo', fmt(st.maxCombo)],
+      ['📈 Rebrands', fmt(game.s.rebrands)],
+      ['🏆 Street Cred', fmt(game.s.cred)],
+    ];
+    modalRoot.innerHTML = `
+      <div class="overlay"><div class="modal">
+        <div class="modal-emoji">📊</div>
+        <h2>Empire Records</h2>
+        <div class="stats-grid">
+          ${rows.map(([k, v]) => `<div class="stat-row"><span>${k}</span><b>${v}</b></div>`).join('')}
+        </div>
+        <div class="choices" style="margin-top:14px">
+          <button class="choice" id="sound-toggle">${game.s.soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF'}</button>
+          <button class="choice danger" id="wipe-save">🗑️ Reset save (burn it all down)</button>
+        </div>
+        <button class="cancel">Close</button>
+      </div></div>
+    `;
+    (modalRoot.querySelector('#sound-toggle') as HTMLButtonElement).addEventListener('click', (e) => {
+      game.s.soundOn = !game.s.soundOn;
+      sfx.enabled = game.s.soundOn;
+      game.save();
+      (e.target as HTMLButtonElement).textContent = game.s.soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF';
+      if (game.s.soundOn) sfx.claim();
+    });
+    (modalRoot.querySelector('#wipe-save') as HTMLButtonElement).addEventListener('click', () => {
+      if (window.confirm('Burn it all down and start over from one dumpster?')) {
+        localStorage.removeItem(SAVE_KEY);
+        window.location.reload();
+      }
+    });
     (modalRoot.querySelector('.cancel') as HTMLButtonElement).addEventListener('click', () => {
       modalRoot.innerHTML = '';
     });
@@ -220,6 +302,21 @@ export function initUI(game: Game): void {
     }
     chipsEl.innerHTML = chips.join('');
 
+    // Quest panel
+    const quest = game.currentQuest();
+    if (quest) {
+      const p = Math.min(quest.progress(game), quest.target);
+      questEmoji.textContent = quest.emoji;
+      questDesc.textContent = `${quest.desc} — ${fmt(p)}/${fmt(quest.target)}`;
+      questFill.style.width = `${(p / quest.target) * 100}%`;
+      questClaim.style.display = p >= quest.target ? '' : 'none';
+    } else {
+      questEmoji.textContent = '👑';
+      questDesc.textContent = 'Empire complete. New goals coming soon.';
+      questFill.style.width = '100%';
+      questClaim.style.display = 'none';
+    }
+
     const gain = game.credGain();
     rebrandBtn.disabled = gain < 1;
     if (gain >= 1) {
@@ -247,7 +344,8 @@ export function initUI(game: Game): void {
         c.fill.style.width = '0%';
       } else {
         c.lvl.textContent = `Lv ${st.level}`;
-        c.rev.textContent = `$${fmt(game.revenuePerCycle(c.def, mods))} / ${game.cycleTime(c.def, mods).toFixed(1)}s`;
+        const nextMilestone = st.level < 25 ? 25 : st.level < 50 ? 50 : (Math.floor(st.level / 100) + 1) * 100;
+        c.rev.textContent = `$${fmt(game.revenuePerCycle(c.def, mods))} / ${game.cycleTime(c.def, mods).toFixed(1)}s · ×2 @ Lv ${nextMilestone}`;
         const count = game.buyCount(c.def, mods);
         const cost = game.bulkCost(c.def, count, mods);
         c.buy.textContent = `Up ×${count}\n$${fmt(cost)}`;
@@ -265,6 +363,19 @@ export function initUI(game: Game): void {
   update();
 
   if (game.offlineGain > 0) {
-    toast(`💤 While you were gone, the raccoons kept at it: +$${fmt(game.offlineGain)}`);
+    modalRoot.innerHTML = `
+      <div class="overlay"><div class="modal">
+        <div class="modal-emoji">💤</div>
+        <h2>Welcome back, boss</h2>
+        <p>The raccoons kept working while you were gone:</p>
+        <div class="offline-amount">+$${fmt(game.offlineGain)}</div>
+        <div class="choices"><button class="choice" id="collect-offline">Collect 🦝</button></div>
+      </div></div>
+    `;
+    (modalRoot.querySelector('#collect-offline') as HTMLButtonElement).addEventListener('click', () => {
+      modalRoot.innerHTML = '';
+      sfx.claim();
+      scene.confettiBurst(sceneCanvas.clientWidth / 2, 90, 14);
+    });
   }
 }

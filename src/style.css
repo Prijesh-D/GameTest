@@ -139,6 +139,90 @@ body {
   cursor: default;
 }
 
+/* Quest panel */
+.quest {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+.quest-emoji {
+  font-size: 1.5rem;
+}
+.quest-body {
+  flex: 1;
+  min-width: 0;
+}
+.quest-desc {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.quest-bar {
+  height: 6px;
+  background: #10131a;
+  border-radius: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.quest-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #6ee7a0, #fbbf24);
+  transition: width 0.3s;
+}
+.btn-claim {
+  background: var(--green);
+  color: #062812;
+  font-weight: 800;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  animation: claimpulse 0.9s infinite alternate;
+}
+@keyframes claimpulse {
+  from { transform: scale(1); }
+  to { transform: scale(1.08); }
+}
+
+/* Stats modal */
+.stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+.stat-row b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.choice.danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+.offline-amount {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--green);
+  margin: 8px 0 16px;
+}
+.toolbar-btns {
+  display: flex;
+  gap: 6px;
+}
+
 /* Toolbar */
 .toolbar {
   display: flex;

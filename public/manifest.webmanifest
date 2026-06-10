@@ -1,0 +1,18 @@
+{
+  "name": "Trash Panda Empire",
+  "short_name": "TrashPanda",
+  "description": "Build a raccoon-run garbage empire. Tap, combo, survive the chaos.",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14161b",
+  "theme_color": "#14161b",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -14,6 +14,15 @@ export interface Buff {
 
 export type BuyAmount = 1 | 10 | 'max';
 
+export interface Stats {
+  taps: number;
+  serves: number; // production cycles completed
+  chaosResolved: number;
+  bagsCaught: number;
+  frenzies: number;
+  maxCombo: number;
+}
+
 export interface GameState {
   version: number;
   cash: number;
@@ -28,6 +37,9 @@ export interface GameState {
   nextEventAt: number; // epoch ms
   lastSaved: number; // epoch ms
   buyAmount: BuyAmount;
+  stats: Stats;
+  soundOn: boolean;
+  questIndex: number;
 }
 
 export const SAVE_KEY = 'trash-panda-save-v1';
@@ -50,6 +62,9 @@ export function defaultState(): GameState {
     nextEventAt: Date.now() + 30_000,
     lastSaved: Date.now(),
     buyAmount: 1,
+    stats: { taps: 0, serves: 0, chaosResolved: 0, bagsCaught: 0, frenzies: 0, maxCombo: 0 },
+    soundOn: true,
+    questIndex: 0,
   };
 }
 
@@ -63,6 +78,7 @@ export function loadState(): GameState {
       ...base,
       ...parsed,
       stations: { ...base.stations, ...(parsed.stations ?? {}) },
+      stats: { ...base.stats, ...(parsed.stats ?? {}) },
     };
   } catch {
     return defaultState();

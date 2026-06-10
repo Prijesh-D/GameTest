@@ -4,11 +4,15 @@
 // customers being served, products handed over, and coins flying to the
 // cash counter.
 
+import { sfx } from './audio';
 import { STATIONS } from './content';
 import { fmt } from './format';
 import { FRENZY_DURATION_MS, type Game } from './game';
 
 const CUSTOMERS = ['🐀', '🐦', '👵', '🦔', '🐈', '🦆', '🐸', '🐕'];
+const CUSTOMERS_MID = ['🧑‍💼', '👩‍🎤', '👨‍🍳', '🐩'];
+const CUSTOMERS_RICH = ['🤖', '🕴️', '👸', '🧛'];
+const CONFETTI = ['🎉', '🎊', '✨', '💸'];
 const EMOTES = ['😋', '❤️', '🤑', '✨'];
 const PRODUCTS: Record<string, string> = {
   dumpster: '🍕',
@@ -107,6 +111,9 @@ export class Scene {
   private last = performance.now();
   private prevCombo = 0;
   private comboPop = 0;
+  private prevFrenzy = false;
+  private lastCoinSfx = 0;
+  private banner = { text: '', until: 0 };
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -170,8 +177,10 @@ export class Scene {
       if (got) {
         if (got.jackpot) {
           this.texts.push({ x: bp.x, y: bp.y, text: '⚡ JACKPOT! FRENZY! ⚡', age: 0, life: 1.4 });
+          sfx.frenzy();
         } else {
           this.texts.push({ x: bp.x, y: bp.y, text: `+$${fmt(got.amount)}`, age: 0, life: 1.2 });
+          sfx.bag();
         }
         for (let i = 0; i < 6; i++) this.spawnCoin(bp.x, bp.y);
       }
@@ -184,6 +193,7 @@ export class Scene {
         const def = STATIONS[i];
         if (this.game.s.stations[def.id].level > 0) {
           this.game.rush(def.id);
+          sfx.tap(this.game.combo);
           this.jumps[i] = performance.now() + 300;
           // The boss hustles over to whatever you're rushing.
           const spot = this.queueSpot(i, 0);
@@ -218,6 +228,51 @@ export class Scene {
       life: 0.9,
       size: 13 + Math.random() * 5,
     });
+  }
+
+  /** Confetti burst — used for quest claims, unlocks, and rebrands. */
+  confettiBurst(x: number, y: number, count = 14): void {
+    for (let i = 0; i < count && this.particles.length < 90; i++) {
+      this.particles.push({
+        emoji: CONFETTI[Math.floor(Math.random() * CONFETTI.length)],
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 180,
+        vy: -(60 + Math.random() * 120),
+        gravity: 140,
+        age: 0,
+        life: 1.1 + Math.random() * 0.5,
+        size: 11 + Math.random() * 7,
+      });
+    }
+  }
+
+  celebrateUnlock(stationId: string): void {
+    const idx = STATIONS.findIndex((d) => d.id === stationId);
+    if (idx < 0) return;
+    const r = this.slotRect(idx);
+    this.confettiBurst(r.x + r.w / 2, r.y + r.h / 2, 16);
+    this.texts.push({ x: r.x + r.w / 2, y: r.y + 12, text: '✨ NEW! ✨', age: 0, life: 1.4 });
+  }
+
+  celebrateRebrand(mutationName: string): void {
+    const n = this.visibleCount();
+    for (let i = 0; i < n; i++) {
+      const r = this.slotRect(i);
+      this.confettiBurst(r.x + r.w / 2, r.y + r.h / 2, 10);
+      this.particles.push({
+        emoji: '💨',
+        x: r.x + r.w / 2,
+        y: r.y + r.h / 2,
+        vx: (Math.random() - 0.5) * 40,
+        vy: -25,
+        gravity: 0,
+        age: 0,
+        life: 1.2,
+        size: 26,
+      });
+    }
+    this.banner = { text: `📈 NEW ERA: ${mutationName.toUpperCase()}`, until: Date.now() + 2600 };
   }
 
   private queueAt(station: number): Customer[] {
@@ -257,6 +312,11 @@ export class Scene {
     this.comboPop = Math.max(0, this.comboPop - dt * 4);
     this.prevCombo = this.game.combo;
 
+    // Frenzy fanfare on the rising edge (covers meter fills from any source).
+    const frenzyNow = this.game.frenzyActive();
+    if (frenzyNow && !this.prevFrenzy) sfx.frenzy();
+    this.prevFrenzy = frenzyNow;
+
     // Engine fx → serve animations where a customer is waiting, coin pops otherwise.
     for (const fx of this.game.fxQueue.splice(0)) {
       const idx = STATIONS.findIndex((d) => d.id === fx.id);
@@ -268,8 +328,13 @@ export class Scene {
       if (waiting.length > 0 && now - this.lastServeAt[idx] > SERVE_COOLDOWN_MS) {
         this.lastServeAt[idx] = now;
         this.serve(waiting[0], idx);
+        sfx.serve();
       } else {
         this.spawnCoin(cx, cy);
+        if (now - this.lastCoinSfx > 150) {
+          this.lastCoinSfx = now;
+          sfx.coin();
+        }
       }
       if (fx.kind === 'rush') {
         for (let i = 0; i < 2; i++) this.spawnCoin(cx, cy);
@@ -337,7 +402,11 @@ export class Scene {
         const heading = this.customers.filter((c) => c.station === i && c.state !== 'leave').length;
         if (heading < QUEUE_MAX) candidates.push(i);
       }
-      const emoji = CUSTOMERS[Math.floor(Math.random() * CUSTOMERS.length)];
+      // Wealthier clientele shows up as the empire grows.
+      const pool = [...CUSTOMERS];
+      if (unlockedCount >= 3) pool.push(...CUSTOMERS_MID);
+      if (unlockedCount >= 5 || this.game.s.cred > 0) pool.push(...CUSTOMERS_RICH);
+      const emoji = pool[Math.floor(Math.random() * pool.length)];
       if (candidates.length > 0 && Math.random() > 0.25) {
         const station = candidates[Math.floor(Math.random() * candidates.length)];
         const queuePos = this.customers.filter((c) => c.station === station && c.state !== 'leave').length;
@@ -527,15 +596,34 @@ export class Scene {
       const st = this.game.s.stations[def.id];
       const r = this.slotRect(i);
       const locked = st.level <= 0;
+      // Stalls visibly evolve: shack → awning → neon → gold.
+      const tier = st.level >= 100 ? 3 : st.level >= 50 ? 2 : st.level >= 25 ? 1 : 0;
       ctx.globalAlpha = locked ? 0.45 : 1;
-      ctx.fillStyle = '#1e222b';
-      ctx.strokeStyle = '#333a48';
+      ctx.fillStyle = tier >= 3 ? '#2a2519' : '#1e222b';
+      ctx.strokeStyle = tier >= 3 ? '#fbbf24' : tier >= 2 ? '#6ee7a0' : '#333a48';
+      if (tier >= 2) {
+        ctx.shadowColor = tier >= 3 ? '#fbbf24' : '#6ee7a0';
+        ctx.shadowBlur = 9;
+      }
       ctx.setLineDash(locked ? [5, 4] : []);
       ctx.beginPath();
       ctx.roundRect(r.x, r.y, r.w, r.h, 10);
       ctx.fill();
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.shadowBlur = 0;
+      if (!locked && tier >= 1) {
+        // Striped awning across the top edge.
+        const seg = (r.w - 8) / 6;
+        for (let k = 0; k < 6; k++) {
+          ctx.fillStyle = k % 2 === 0 ? (tier >= 3 ? '#fbbf24' : '#f87171') : '#e8eaf0';
+          ctx.fillRect(r.x + 4 + k * seg, r.y - 2, seg, 6);
+        }
+      }
+      if (!locked && tier >= 3) {
+        ctx.font = `11px ${EMOJI_FONT}`;
+        ctx.fillText('👑', r.x + r.w - 12, r.y + 10);
+      }
       // Stall emoji pulses when it just served someone.
       const servePulse = Math.max(0, 1 - (now - this.lastServeAt[i]) / 200);
       ctx.font = `${30 + servePulse * 6}px ${EMOJI_FONT}`;
@@ -627,6 +715,16 @@ export class Scene {
       ctx.font = `800 ${22 + Math.sin(t * 12) * 3}px system-ui`;
       ctx.fillStyle = '#fbbf24';
       ctx.fillText('⚡ FRENZY ⚡', this.W / 2, this.H / 2);
+    }
+
+    // Celebration banner (rebrand)
+    if (Date.now() < this.banner.until) {
+      const remain = (this.banner.until - Date.now()) / 2600;
+      ctx.globalAlpha = Math.min(1, remain * 4);
+      ctx.font = `800 ${18 + Math.sin(t * 6) * 2}px system-ui`;
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillText(this.banner.text, this.W / 2, this.H / 2 - 24);
+      ctx.globalAlpha = 1;
     }
 
     // Combo counter

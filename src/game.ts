@@ -8,6 +8,7 @@ import {
   type StationDef,
   type WeightedOutcome,
 } from './content';
+import { QUESTS, type Quest } from './quests';
 import { loadState, saveState, type BuyAmount, type GameState } from './state';
 
 // Combined modifiers from street cred + active mutation + temporary buffs.
@@ -210,14 +211,17 @@ export class Game {
     if (st.level <= 0) return 0;
     const now = Date.now();
     this.lastTapAt = now;
+    this.s.stats.taps++;
     if (now > this.comboExpiresAt) this.combo = 0;
     this.combo++;
+    if (this.combo > this.s.stats.maxCombo) this.s.stats.maxCombo = this.combo;
     this.comboExpiresAt = now + COMBO_WINDOW_MS;
     if (now >= this.frenzyUntil) {
       this.frenzyMeter = Math.min(this.frenzyMeter + FRENZY_PER_TAP, 1);
       if (this.frenzyMeter >= 1) {
         this.frenzyMeter = 0;
         this.frenzyUntil = now + FRENZY_DURATION_MS;
+        this.s.stats.frenzies++;
       }
     }
     const mods = this.mods();
@@ -232,10 +236,12 @@ export class Game {
   collectBag(): { amount: number; jackpot: boolean } | null {
     if (!this.bag) return null;
     this.bag = null;
+    this.s.stats.bagsCaught++;
     this.nextBagAt = Date.now() + (BAG_MIN_GAP_SEC + Math.random() * (BAG_MAX_GAP_SEC - BAG_MIN_GAP_SEC)) * 1000;
     if (Math.random() < BAG_JACKPOT_CHANCE) {
       this.frenzyMeter = 0;
       this.frenzyUntil = Date.now() + FRENZY_DURATION_MS;
+      this.s.stats.frenzies++;
       return { amount: 0, jackpot: true };
     }
     const amount = Math.max(this.rps() * BAG_REWARD_SECONDS, 25);
@@ -269,6 +275,7 @@ export class Game {
         st.progress -= cycles;
         const earned = this.revenuePerCycle(def, mods) * cycles;
         this.earn(earned);
+        this.s.stats.serves += cycles;
         this.pushFx(def.id, earned, 'cycle');
       }
     }
@@ -282,12 +289,27 @@ export class Game {
     if (!ev) return null;
     const picked = choiceIdx === null ? ev.timeout : pickWeighted(ev.choices[choiceIdx].results);
     this.applyOutcome(picked.outcome);
+    this.s.stats.chaosResolved++;
     this.pending = null;
     const gapSec =
       (EVENT_MIN_GAP_SEC + Math.random() * (EVENT_MAX_GAP_SEC - EVENT_MIN_GAP_SEC)) /
       this.mods().eventFreq;
     this.s.nextEventAt = Date.now() + gapSec * 1000;
     return picked;
+  }
+
+  currentQuest(): Quest | null {
+    return QUESTS[this.s.questIndex] ?? null;
+  }
+
+  claimQuest(): { quest: Quest; reward: number } | null {
+    const quest = this.currentQuest();
+    if (!quest || quest.progress(this) < quest.target) return null;
+    const reward = quest.rewardFlat ?? Math.max(this.rps(), 1) * (quest.rewardSeconds ?? 0);
+    this.earn(reward);
+    this.s.questIndex++;
+    this.save();
+    return { quest, reward };
   }
 
   credGain(): number {

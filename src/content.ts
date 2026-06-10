@@ -137,6 +137,20 @@ export const MUTATIONS: Mutation[] = [
     desc: 'Chaos events half as often and revenue ×1.5 — but the raccoons move mindfully. 25% slower.',
     mods: { eventFreqMult: 0.5, revMult: 1.5, speedMult: 0.75 },
   },
+  {
+    id: 'gourmet',
+    name: 'Gourmet Rot',
+    emoji: '🧀',
+    desc: 'Aged garbage commands double prices, but curing takes time: production 30% slower.',
+    mods: { revMult: 2, speedMult: 0.7 },
+  },
+  {
+    id: 'swarm',
+    name: 'Pigeon Street Team',
+    emoji: '🐦',
+    desc: 'A pigeon promo crew makes everything 1.5× faster — but they eat 10% of revenue. Literally.',
+    mods: { speedMult: 1.5, revMult: 0.9 },
+  },
 ];
 
 export interface BuffSpec {
@@ -501,6 +515,158 @@ export const CHAOS_EVENTS: ChaosEvent[] = [
       outcome: {},
     },
   },
+  {
+    id: 'pizza_rat',
+    title: 'Pizza Rat Cameo',
+    emoji: '🍕',
+    text: 'THE Pizza Rat is here, dragging an entire slice. Paparazzi pigeons are everywhere.',
+    choices: [
+      {
+        label: 'Offer a brand partnership',
+        results: [
+          {
+            weight: 70,
+            text: 'He accepts via aggressive nodding. Foot traffic explodes.',
+            outcome: { buff: { label: 'Pizza Rat Collab', revMult: 1.75, durationSec: 90 } },
+          },
+          {
+            weight: 30,
+            text: "He's lactose intolerant now. The moment passes awkwardly.",
+            outcome: {},
+          },
+        ],
+      },
+      {
+        label: 'Charge the pigeons for photos',
+        results: [
+          {
+            weight: 100,
+            text: 'They pay in coins they definitely found legally.',
+            outcome: { cashSeconds: 60 },
+          },
+        ],
+      },
+    ],
+    timeout: {
+      weight: 1,
+      text: 'He left. So did your pepperoni inventory.',
+      outcome: { cashPct: -0.05 },
+    },
+  },
+  {
+    id: 'census',
+    title: 'Raccoon Census',
+    emoji: '📊',
+    text: 'A clipboard raccoon is conducting the official alley census. He has questions. So many questions.',
+    choices: [
+      {
+        label: 'Answer honestly',
+        results: [
+          {
+            weight: 100,
+            text: 'You are now eligible for municipal trash subsidies. Democracy works.',
+            outcome: { cashSeconds: 45, buff: { label: 'Registered Business', revMult: 1.2, durationSec: 60 } },
+          },
+        ],
+      },
+      {
+        label: 'Claim to be 80 raccoons',
+        results: [
+          {
+            weight: 50,
+            text: 'The per-capita subsidy check is ENORMOUS.',
+            outcome: { cashSeconds: 150 },
+          },
+          {
+            weight: 50,
+            text: 'Census fraud. The fine is itemized per fictional raccoon.',
+            outcome: { cashPct: -0.25 },
+          },
+        ],
+      },
+    ],
+    timeout: {
+      weight: 1,
+      text: 'You were marked "uncooperative (typical)."',
+      outcome: {},
+    },
+  },
+  {
+    id: 'crypto',
+    title: 'Crypto Pigeon',
+    emoji: '🪙',
+    text: 'A pigeon in tiny sunglasses is pitching "TrashCoin." It is going to the moon, allegedly.',
+    choices: [
+      {
+        label: 'Invest a third of the vault',
+        results: [
+          {
+            weight: 35,
+            text: 'TrashCoin moons. You hate that this worked.',
+            outcome: { cashPct: 0.66 },
+          },
+          {
+            weight: 65,
+            text: 'Rug pull. The pigeon is gone. The coin was bread crumbs all along.',
+            outcome: { cashPct: -0.33 },
+          },
+        ],
+      },
+      {
+        label: 'Politely decline',
+        results: [
+          {
+            weight: 100,
+            text: '"DYOR," he coos respectfully, and flies off.',
+            outcome: {},
+          },
+        ],
+      },
+    ],
+    timeout: {
+      weight: 1,
+      text: 'He airdropped you 0.0001 TrashCoin. Worthless, but thoughtful.',
+      outcome: { cashSeconds: 5 },
+    },
+  },
+  {
+    id: 'fullmoon',
+    title: 'Full Moon',
+    emoji: '🌕',
+    text: 'The raccoons are VIBRATING. The moon is full and the night is young.',
+    choices: [
+      {
+        label: 'Let them howl',
+        results: [
+          {
+            weight: 100,
+            text: 'Productivity becomes feral.',
+            outcome: { buff: { label: 'Feral Mode', speedMult: 2, durationSec: 60 } },
+          },
+        ],
+      },
+      {
+        label: 'Mandatory calm-down tea',
+        results: [
+          {
+            weight: 60,
+            text: 'They settle. The tea was chamomile and authority.',
+            outcome: { buff: { label: 'Zen Staff', revMult: 1.3, durationSec: 90 } },
+          },
+          {
+            weight: 40,
+            text: 'They drank the tea AND kept vibrating. Chaos, but profitable chaos.',
+            outcome: { buff: { label: 'Caffeinated Somehow', speedMult: 1.5, durationSec: 60 } },
+          },
+        ],
+      },
+    ],
+    timeout: {
+      weight: 1,
+      text: 'They briefly unionized with the seagulls. Nothing got done.',
+      outcome: { buff: { label: 'Moon Distraction', revMult: 0.7, durationSec: 30 } },
+    },
+  },
 ];
 
 export interface Review {
@@ -520,4 +686,10 @@ export const REVIEWS: Review[] = [
   { name: 'Dave (Rat, Union Rep)', stars: 4, text: 'Fair wages, questionable smells. The union endorses.' },
   { name: 'Susan the Seagull', stars: 2, text: 'FRIES WERE NOT BOTTOMLESS AS PROMISED.' },
   { name: 'Anonymous Possum', stars: 5, text: '(playing dead)' },
+  { name: 'Pizza Rat', stars: 5, text: '(no comment, dragging slice)' },
+  { name: 'Carl (Crypto Pigeon)', stars: 1, text: 'Refused to accept TrashCoin. NGMI.' },
+  { name: 'The Moon', stars: 5, text: 'they howled at me. felt nice.' },
+  { name: 'City of [REDACTED]', stars: 2, text: 'Technically compliant. Emotionally concerning.' },
+  { name: 'Raccoon #47 of 80', stars: 5, text: 'I do not exist and even I love it here.' },
+  { name: 'Tinfoil Greg', stars: 4, text: 'Shinies adequately shiny. The cauldron knows too much.' },
 ];
