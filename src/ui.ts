@@ -357,6 +357,18 @@ export function initUI(game: Game): void {
 
   new Scene($('#scene') as HTMLCanvasElement, game);
 
+  // Desktop playtesting: keys 1-6 rush the corresponding station.
+  window.addEventListener('keydown', (e) => {
+    const idx = parseInt(e.key, 10) - 1;
+    if (idx >= 0 && idx < STATIONS.length) {
+      const def = STATIONS[idx];
+      if (game.s.stations[def.id].level > 0) {
+        game.rush(def.id);
+        sfx.tap(game.combo);
+      }
+    }
+  });
+
   window.setInterval(update, 100);
   window.setInterval(rotateReview, 9000);
   rotateReview();
