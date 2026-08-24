@@ -43,10 +43,14 @@ the invite code is what controls access instead.
 **SQL Editor → New query**. Paste the entire contents of
 `supabase/migrations/0001_init.sql` and run it.
 
-This creates every table, the row-level security policies, and the views behind
-streaks and the leaderboard.
+This creates every table, the row-level security policies, the views behind
+streaks and the leaderboard, and turns on Realtime for the feed.
 
 Leave `0002_push.sql` for now — it needs values you don't have yet (step 7).
+
+To confirm it worked, **Database → Publications → `supabase_realtime`** should
+list `workouts` and `reactions`. Without those the feed still loads, it just
+never updates on its own.
 
 ## 4. Configure the app locally
 

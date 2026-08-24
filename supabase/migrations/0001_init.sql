@@ -249,6 +249,22 @@ create policy "own subscriptions" on push_subscriptions
   for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
+-- Realtime
+--
+-- Without this the feed still loads, it just never updates on its own — which
+-- is most of the point of having a feed. Guarded so the schema still applies to
+-- a plain Postgres cluster, where this publication does not exist.
+-- ---------------------------------------------------------------------------
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    alter publication supabase_realtime add table workouts;
+    alter publication supabase_realtime add table reactions;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Derived stats
 --
 -- Kept in SQL so the home screen, leaderboard and nudge job cannot disagree

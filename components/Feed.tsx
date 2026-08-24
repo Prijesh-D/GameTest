@@ -31,7 +31,6 @@ export function Feed({
         async (payload) => {
           const row = payload.new as { id: string; finished_at: string | null };
           if (!row.finished_at) return;
-          if (items.some((i) => i.id === row.id)) return;
 
           const { data } = await supabase
             .from("workout_feed")
@@ -39,7 +38,13 @@ export function Feed({
             .eq("id", row.id)
             .maybeSingle<FeedItem>();
 
-          if (data) setItems((prev) => [data, ...prev]);
+          // Dedupe inside the updater rather than against a captured `items`,
+          // so this effect doesn't need `items` as a dependency — otherwise
+          // every new card tears down and rebuilds the subscription, and
+          // events land in the gap.
+          if (data) {
+            setItems((prev) => (prev.some((i) => i.id === data.id) ? prev : [data, ...prev]));
+          }
         },
       )
       .on(
@@ -59,7 +64,7 @@ export function Feed({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [supabase, items]);
+  }, [supabase]);
 
   async function toggleReaction(workoutId: string, emoji: string) {
     const mine = reactions.find(
