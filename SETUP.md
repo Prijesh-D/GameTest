@@ -82,6 +82,16 @@ The data is vendored in `data/exercises.en.json`, so this works without network
 access to GitHub. To pull upstream changes later, run `npm run data:refresh`
 then seed again — it upserts, so re-running is safe.
 
+Check everything landed:
+
+```bash
+npm run doctor
+```
+
+It verifies your keys, the schema, the seed and the security policies, and
+names the exact step to fix if something is off. Run it any time the app
+misbehaves — it is the fastest way to tell a config problem from a bug.
+
 Now try it:
 
 ```bash
@@ -212,6 +222,10 @@ shown on each exercise page. Don't resize them or strip the attribution. If this
 ever stops being a private app among friends, swap `image_url`/`gif_url` for
 [free-exercise-db](https://github.com/yuhonas/free-exercise-db), which is public
 domain — that's a change to the seed script and nothing else.
+
+**When something breaks.** `npm run doctor` first — it distinguishes a bad
+key from a missing migration from an empty catalogue, which is most of the
+problems you can actually hit.
 
 **Checking the database logic.** `./supabase/tests/run.sh` spins up a throwaway
 local Postgres and verifies streak arithmetic and every RLS policy. It never

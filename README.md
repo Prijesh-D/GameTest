@@ -50,6 +50,7 @@ npm run dev
 | `npm run dev` | dev server |
 | `npm run build` | production build |
 | `npm run typecheck` | TypeScript, no emit |
+| `npm run doctor` | check env, schema and seed; names the exact step that failed |
 | `npm run db:seed` | load exercises into Supabase |
 | `npm run data:refresh` | re-pull the upstream exercise dataset |
 | `./supabase/tests/run.sh` | verify schema, stats and RLS on a throwaway local Postgres |
