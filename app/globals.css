@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    /* Stop iOS from bouncing the whole document; individual scrollers handle it. */
+    overscroll-behavior-y: none;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text antialiased;
+    /* Fills the notch/home-indicator area with the app background rather than white. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    min-height: 100dvh;
+  }
+
+  /* iOS zooms the viewport when focusing an input under 16px. Numeric set entry
+     is the most-used control in the app, so this must never happen. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-border bg-surface p-4;
+  }
+
+  .btn {
+    @apply flex items-center justify-center rounded-lg px-4 py-3 font-medium transition-colors disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-bg active:bg-accent/80;
+  }
+
+  .btn-ghost {
+    @apply btn border border-border bg-surface2 text-text active:bg-border;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-border bg-surface2 px-3 py-3 text-text
+           outline-none placeholder:text-muted focus:border-accent;
+  }
+}
