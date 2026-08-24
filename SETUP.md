@@ -185,16 +185,25 @@ curl -X POST https://<ref>.supabase.co/functions/v1/send-push \
 trains weekly will never hit this. If you all go on holiday, un-pause it from
 the dashboard — no data is lost.
 
-**Changing the group's timezone.** Week boundaries drive streaks and the
-leaderboard, and are computed in one place. If your group isn't in the UK, edit
-`app_tz()` at the top of `0001_init.sql` before running it (or `create or
-replace` it later):
+**Changing the group's timezone.** The app is set to `America/New_York`. Week
+boundaries drive streaks and the leaderboard, and are computed in one place — so
+if your group is elsewhere, edit `app_tz()` at the top of `0001_init.sql` before
+running it (or `create or replace` it later):
 
 ```sql
 create or replace function app_tz() returns text
   language sql immutable parallel safe
-  as $$ select 'America/New_York'::text $$;
+  as $$ select 'Europe/London'::text $$;
 ```
+
+Use an IANA zone name rather than a fixed offset, so daylight saving is handled
+for you.
+
+Two things move with it. The nudge cron in `0002_push.sql` is scheduled in UTC
+(`0 23 * * *` = 6pm New York) and needs restating for a new zone. And keep that
+schedule before midnight UTC unless you also rework the day-of-week check in
+`supabase/functions/send-push/index.ts` — it reads the day in UTC, which only
+matches your local date while the two are on the same day.
 
 **Exercise media.** The thumbnails and animated GIFs come from
 [hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset)

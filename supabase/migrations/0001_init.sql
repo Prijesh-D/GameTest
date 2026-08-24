@@ -10,11 +10,15 @@
 -- ---------------------------------------------------------------------------
 
 -- Week boundaries are computed in the group's local timezone, not UTC. Without
--- this, a Sunday-evening session in a UTC+ zone lands in the following week and
--- silently breaks someone's streak. Edit this one function to move the group.
+-- this, a Sunday-evening session lands in the following week and silently
+-- breaks a streak the person actually earned. Edit this one function to move
+-- the group.
+--
+-- Must be an IANA zone name, not a fixed offset — that is what makes daylight
+-- saving handle itself, since `at time zone` resolves EST/EDT per timestamp.
 create or replace function app_tz() returns text
   language sql immutable parallel safe
-  as $$ select 'Europe/London'::text $$;
+  as $$ select 'America/New_York'::text $$;
 
 -- Monday-based (ISO) week containing the given instant, in local time.
 create or replace function week_start(ts timestamptz) returns date

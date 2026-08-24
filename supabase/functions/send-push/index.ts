@@ -127,6 +127,12 @@ async function handleScheduled() {
   const thisWeek = (stats ?? []).filter((s) => s.week === currentWeek && !s.met_goal);
 
   // 0 = Monday. Only nudge from Thursday onward.
+  //
+  // Read in UTC, which matches the group's calendar day only because the cron
+  // fires at 23:00 UTC and America/New_York is behind UTC — 23:00 UTC Thursday
+  // is still Thursday evening there. Moving the schedule past midnight UTC
+  // would make this a day ahead of the group (02:00 UTC Friday is Thursday
+  // 21:00 ET), so keep the two in step. See 0002_push.sql.
   const dayOfWeek = (new Date().getUTCDay() + 6) % 7;
   if (dayOfWeek < 3) return { kind: "scheduled", skipped: "too early in the week" };
 

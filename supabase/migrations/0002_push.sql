@@ -76,12 +76,19 @@ create trigger nudge_push
 -- 2. Scheduled: behind-pace sweep
 -- ---------------------------------------------------------------------------
 
--- 18:00 UTC daily. The function itself decides who is worth pinging — it stays
--- quiet before Thursday and skips anyone already at their goal — so this only
--- needs to fire once a day at an hour people might act on.
+-- Daily at 23:00 UTC, which is 18:00 EST / 19:00 EDT — an evening someone can
+-- still act on. cron.schedule is always UTC, so this hour has to be restated
+-- whenever app_tz() changes; the naive 18:00 UTC lands at lunchtime in New York.
+--
+-- Keep this before midnight UTC. send-push reads the day of week from
+-- getUTCDay(), which only agrees with New York's calendar day while UTC and ET
+-- are on the same date — true at 23:00, false at 02:00. See index.ts.
+--
+-- The function itself decides who is worth pinging (quiet before Thursday, and
+-- never to anyone already at their goal), so once a day is enough.
 select cron.schedule(
   'gymgroup-pace-reminder',
-  '0 18 * * *',
+  '0 23 * * *',
   $$ select public.call_send_push('{"scheduled":true}'::jsonb) $$
 );
 
