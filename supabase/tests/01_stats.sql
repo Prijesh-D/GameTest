@@ -70,7 +70,9 @@ begin
   -- u_none logs nothing at all -> streak 0.
 end $$;
 
-\echo '=== streaks (expected: Perfect=4 Missed=0 InProgress=2 Partial=2 None=0) ==='
+-- Missed=1: they hit their goal this week, but the gap the week before caps
+-- the streak at the current week alone.
+\echo '=== streaks (expected: Perfect=4 Missed=1 InProgress=2 Partial=2 None=0) ==='
 select p.display_name, current_streak(p.id) as streak
 from profiles p order by p.display_name;
 

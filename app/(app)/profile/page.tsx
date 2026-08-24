@@ -75,6 +75,20 @@ export default async function ProfilePage() {
         <PushToggle />
       </section>
 
+      {/* Members are the ones who invite people, so they need to see the code.
+          It is read server-side and never shipped in the client bundle. */}
+      {process.env.INVITE_CODE && (
+        <section className="card mt-4">
+          <p className="font-medium">Invite a friend</p>
+          <p className="mt-1 text-sm text-muted">
+            Send them this link and the code below.
+          </p>
+          <p className="mt-2 select-all rounded-lg bg-surface2 px-3 py-2 text-center font-mono text-lg tracking-widest">
+            {process.env.INVITE_CODE}
+          </p>
+        </section>
+      )}
+
       <section className="mt-4">
         <SignOutButton />
       </section>

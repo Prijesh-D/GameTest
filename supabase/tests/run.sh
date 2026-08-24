@@ -40,6 +40,11 @@ psql -q -c "drop database if exists gymtest;" -c "create database gymtest;" >/de
 echo "==> applying stub + migrations"
 psql -q -d gymtest -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/00_local_stub.sql" >/dev/null
 for m in "$ROOT"/supabase/migrations/*.sql; do
+  # 0002 wires pg_net/pg_cron/Vault, which only exist on Supabase. Skipping it
+  # here is expected — there is nothing in it that local tests could exercise.
+  case "$(basename "$m")" in
+    0002_push.sql) echo "    $(basename "$m") (skipped — Supabase-only extensions)"; continue ;;
+  esac
   echo "    $(basename "$m")"
   psql -q -d gymtest -v ON_ERROR_STOP=1 -f "$m" >/dev/null
 done
