@@ -19,11 +19,18 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 type State =
   | "checking"
   | "unsupported"
+  | "not-configured" // deployed before the VAPID keys were set up
   | "needs-install" // iOS: PushManager only exists once added to the home screen
   | "off"
   | "on"
   | "denied"
   | "working";
+
+// Inlined at build time. Absent until the VAPID keys are generated, which
+// happens after the first deploy — so this genuinely can be undefined in
+// production, and asserting it away would mean prompting for notification
+// permission and only then failing.
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
 export function PushToggle() {
   const [state, setState] = useState<State>("checking");
@@ -31,6 +38,7 @@ export function PushToggle() {
 
   useEffect(() => {
     void (async () => {
+      if (!VAPID_PUBLIC_KEY) return setState("not-configured");
       if (!("serviceWorker" in navigator)) return setState("unsupported");
 
       // On iOS this is the tell: Safari exposes PushManager to an installed PWA
@@ -49,6 +57,11 @@ export function PushToggle() {
   }, []);
 
   async function enable() {
+    // Re-checked here rather than relying on the effect's guard: this also
+    // narrows the type, and it keeps the invariant next to the call that
+    // depends on it.
+    if (!VAPID_PUBLIC_KEY) return setState("not-configured");
+
     setState("working");
     setError(null);
 
@@ -64,9 +77,7 @@ export function PushToggle() {
       const reg = await navigator.serviceWorker.ready;
       const subscription = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(
-          process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-        ),
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       });
 
       const json = subscription.toJSON();
@@ -109,6 +120,18 @@ export function PushToggle() {
   }
 
   if (state === "checking") return null;
+
+  if (state === "not-configured") {
+    return (
+      <div className="card">
+        <p className="font-medium">Nudges</p>
+        <p className="mt-1 text-sm text-muted">
+          Not set up yet — whoever deployed this still needs to add the VAPID keys
+          (step 7 of SETUP.md).
+        </p>
+      </div>
+    );
+  }
 
   if (state === "needs-install") {
     return (
