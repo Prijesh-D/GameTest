@@ -113,6 +113,11 @@ create table workouts (
   constraint finished_after_started check (finished_at is null or finished_at >= started_at)
 );
 
+-- Declared after `routines` exists. Recording which routine a session came from
+-- lets the active screen show that routine's exercises as empty blocks before
+-- any set is logged, and survives a reload — no placeholder rows needed.
+-- `set null` so deleting a routine never takes finished workouts with it.
+
 alter table workouts enable row level security;
 
 create policy "workouts readable by group" on workouts
@@ -185,6 +190,8 @@ create policy "own routine exercises writable" on routine_exercises
   for all to authenticated
   using (exists (select 1 from routines r where r.id = routine_id and r.user_id = auth.uid()))
   with check (exists (select 1 from routines r where r.id = routine_id and r.user_id = auth.uid()));
+
+alter table workouts add column routine_id uuid references routines(id) on delete set null;
 
 -- ---------------------------------------------------------------------------
 -- Social
